@@ -66,22 +66,33 @@ function readScenarioFile(filePath, meta) {
     const bets = Number(row.bets || 0);
     const wins = Number(row.wins || 0);
     const winPct = bets ? (wins / bets * 100) : 0;
+    const losses = Number(row.losses || 0);
+    const finalBank = Number(row.final_bankroll || 0);
+    const profit = Number(row.profit || 0);
+    const totalStaked = Number(row.total_staked || 0);
+    const roi = Number(row.roi || 0);
+    const maxDrawdown = Number(row.max_drawdown || 0);
+    const maxStake = Number(row.max_stake || 0);
+
+    const roundInt = val => Math.round(val).toString();
+    const roundFixed = (val, digits) => (Math.round(val * Math.pow(10, digits)) / Math.pow(10, digits)).toFixed(digits);
+
     return {
       strategy_group: meta.strategy_group,
       hero_filter: meta.hero_filter,
       odds_condition: meta.odds_condition,
       metric: row.metric,
       delta_threshold: Number(row.threshold || 0),
-      bets,
-      wins,
-      losses: Number(row.losses || 0),
-      win_pct: winPct.toFixed(2),
-      final_bank: Number(row.final_bankroll || 0).toFixed(2),
-      profit: Number(row.profit || 0).toFixed(2),
-      total_staked: Number(row.total_staked || 0).toFixed(2),
-      roi: Number(row.roi || 0).toFixed(4),
-      max_drawdown: Number(row.max_drawdown || 0).toFixed(2),
-      max_stake: Number(row.max_stake || 0).toFixed(2),
+      bets: roundInt(bets),
+      wins: roundInt(wins),
+      losses: roundInt(losses),
+      win_pct: roundFixed(winPct, 2),
+      final_bank: roundInt(finalBank),
+      profit: roundInt(profit),
+      total_staked: roundInt(totalStaked),
+      roi: roundFixed(roi, 4),
+      max_drawdown: roundInt(maxDrawdown),
+      max_stake: roundInt(maxStake),
     };
   });
 }
