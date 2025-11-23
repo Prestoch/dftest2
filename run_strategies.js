@@ -197,16 +197,14 @@ function buildMatchDataset(csData, matches) {
   return dataset;
 }
 
-const BASE_THRESHOLDS = [5,10,15,20,25,30,35,40,45,50,75,100,125,150,200,250,300,350,400];
-const GPM_THRESHOLDS = [200,400,600,800,1000,1200];
-const XPM_THRESHOLDS = GPM_THRESHOLDS;
+const GPM_THRESHOLDS = [100,200,300,400,500];
+const XPM_THRESHOLDS = [100,200,300,400,500];
 const HERO_DAMAGE_THRESHOLDS = [5000,10000,15000,20000,25000];
-const TOWER_THRESHOLDS = HERO_DAMAGE_THRESHOLDS;
+const TOWER_THRESHOLDS = [5000,10000,15000,20000,25000];
 const DAMAGE_TAKEN_THRESHOLDS = [10000,20000,30000,40000,50000];
-const TEAM_PART_THRESHOLDS = [5,10,15,20,25];
+const TEAM_PART_THRESHOLDS = [1,2,3,4,5];
 
 const METRIC_CONFIG = [
-  { key: 'wr_delta', label: 'WR_DELTA', thresholds: BASE_THRESHOLDS },
   { key: 'gpm_delta', label: 'GPM', thresholds: GPM_THRESHOLDS },
   { key: 'xpm_delta', label: 'XPM', thresholds: XPM_THRESHOLDS },
   { key: 'hero_damage_delta', label: 'HERO_DAMAGE', thresholds: HERO_DAMAGE_THRESHOLDS },
@@ -227,7 +225,6 @@ function heroFilterCheck(match, predicted, requirement) {
 }
 
 function getStake(state, strategy, odds) {
-  if (state.bankroll <= 0) return 0;
   let stake = 0;
   switch (strategy.type) {
     case 'flat':
@@ -245,7 +242,6 @@ function getStake(state, strategy, odds) {
     default:
       stake = 0;
   }
-  if (stake > state.bankroll) stake = state.bankroll;
   if (stake > MAX_BET) stake = MAX_BET;
   return stake;
 }
@@ -319,7 +315,6 @@ function simulateThreshold(matches, metricKey, threshold, scenario) {
     } else {
       stats.losses += 1;
       state.bankroll -= stake;
-      if (state.bankroll < 0) state.bankroll = 0;
       updateStakeState(state, strategyConfig, false);
     }
 
@@ -329,7 +324,7 @@ function simulateThreshold(matches, metricKey, threshold, scenario) {
     const drawdown = state.peak - state.bankroll;
     if (drawdown > state.maxDrawdown) state.maxDrawdown = drawdown;
 
-    if (state.bankroll <= 0) break;
+    // bankroll can go negative now; keep betting
   }
 
   const profit = state.bankroll - START_BANKROLL;
