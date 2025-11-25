@@ -6,7 +6,6 @@
 1XPLORE Series LATAM #3
 1XPLORE Series LATAM #4
 1win Series Dota 2
-Americas Convergence Series 1
 BLAST SLAM I
 BLAST Slam IV: China Closed Qualifier
 BLAST Slam V: China Closed Qualifier
@@ -23,8 +22,6 @@ BetBoom Dacha Belgrade 2024 - Closed Qualifiers - EEU
 BetBoom Dacha Belgrade 2024 - Closed Qualifiers - SEA
 BetBoom Dacha Belgrade 2024 - Closed Qualifiers - WEU
 BetBoom Dacha Dubai 2024
-BetBoom RU Battle
-BetBoom Streamers Battle x Динамо 11
 CCT Dota 2 Season 2 Series 1
 CCT Dota 2 Season 2 Series 2
 CCT Dota 2 Season 2 Series 3
@@ -122,8 +119,6 @@ Elite League Season 2 WEU Closed Qualifiers – presented by ESB
 Elite League by FISSURE and ESB
 Esports World Cup 2025
 Esports World Cup 2025 Qualifiers
-Europa Masters Cup
-European Esports Championship 2025
 European Pro League  2022-2023 Season
 European Pro League  2023-2024 Season
 European Pro League  2024-2025 Season
@@ -153,21 +148,13 @@ FISSURE Universe Episode 5
 FISSURE Universe Episode 6
 FISSURE Universe Episode 7
 FISSURE Universe: Episode 3
-FONBET MEDIA ELEAGUE DOTA2 2025
-FQLAutamn Season 2
 FastInvitational DotaPRO Season 2
 FastInvitational DotaPRO Season 3
 Games of Future 2024
 III Киберспортивный турнир Сбера по Dota 2
-INDIA PREDATOR LEAGUE 2026
-LATAM Rookie Challenge #10
-LATAMAX Cup Royal
-LATAMAX Cup Royal S2
 LEON.BET Masters DOTA2 #1
 Latam Rookie Challenge #7
 Latam Rookie Challenge #9
-Moon Studio July Tournament
-Open Esports Student Games 2025 : SA Qualifier
 PGL Wallachia 2024 Season 1
 PGL Wallachia 2024 Season 2
 PGL Wallachia 2025 Season 3
@@ -202,7 +189,6 @@ PGL Wallachia Season #6 CN Closed Qualifiers
 PGL Wallachia Season #6 EEU Closed Qualifiers
 PGL Wallachia Season #6 SEA Closed Qualifiers
 PGL Wallachia Season #6 WEU Closed Qualifiers
-Pakistan Dota Masters - Season 2
 Phygital Games
 Pinnacle Cup: Malta Vibes #1
 Pinnacle Cup: Malta Vibes #2
@@ -223,8 +209,6 @@ RES Unchained - A Blast Dota Slam IV Qualifier EU
 RES Unchained - A Blast Dota Slam IV Qualifier SEA
 RES Unchained - A Blast Dota Slam V Qualifier EU
 RES Unchained - A Blast Dota Slam V Qualifier SEA
-ROAD TO TI13 - OQ China
-Redragon Latam Series Dota2
 Riyadh Masters 2023 by Gamers8
 Riyadh Masters 2024 at Esports World Cup
 Riyadh Masters 2024 at Esports World Cup Qualifiers
@@ -255,6 +239,3 @@ The Bali Major
 The International 2023
 The International 2024
 The International 2025
-Всероссийская киберспортивная студенческая лига Сбера 2025
-Кубок России Сбера по компьютерному спорту 2025
-Чемпионат России Сбера 2025
