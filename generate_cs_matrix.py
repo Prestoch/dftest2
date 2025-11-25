@@ -317,12 +317,14 @@ def write_output(
     update_time: str,
 ) -> None:
     lines = []
-    lines.append(f"var heroes = {json.dumps(heroes, ensure_ascii=False)};")
-    lines.append(f"var heroes_bg = {json.dumps(heroes_bg, ensure_ascii=False)};")
-    lines.append(f"var heroes_wr = {json.dumps(heroes_wr)};")
+    dumps_compact = lambda obj, **kwargs: json.dumps(obj, ensure_ascii=False, separators=(',', ':'), **kwargs)
+
+    lines.append(f"var heroes = {dumps_compact(heroes)};")
+    lines.append(f"var heroes_bg = {dumps_compact(heroes_bg)};")
+    lines.append(f"var heroes_wr = {dumps_compact(heroes_wr)};")
 
     for js_key, values in additional_arrays.items():
-        lines.append(f"var {js_key} = {json.dumps(values)};")
+        lines.append(f"var {js_key} = {dumps_compact(values)};")
 
     lines.append(f"var win_rates = {json.dumps(win_rates, separators=(',', ':'))};")
     lines.append(f'var update_time = "{update_time}";')
