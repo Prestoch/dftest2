@@ -7,7 +7,10 @@ from pathlib import Path
 START_BANKROLL = 1000
 MAX_BET = 10000
 PERCENTS = [0.10, 0.20, 0.30, 0.40, 0.50]
-ODDS_CAPS = [1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3, 1.2]
+ODDS_CAPS = [round(x, 1) for x in (
+    [1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9] +
+    [y / 10 for y in range(20, 41)]  # 2.0 to 4.0
+)]
 DELTA_THRESHOLDS = [50, 100, 150, 200, 250, 300, 350, 400]
 
 
