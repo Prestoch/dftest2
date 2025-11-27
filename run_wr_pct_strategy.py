@@ -1,5 +1,7 @@
 import json
 import csv
+import argparse
+from collections import defaultdict
 from pathlib import Path
 
 START_BANKROLL = 1000
@@ -7,7 +9,6 @@ MAX_BET = 10000
 PERCENTS = [0.10, 0.20, 0.30, 0.40, 0.50]
 ODDS_CAPS = [1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3, 1.2]
 DELTA_THRESHOLDS = [50, 100, 150, 200, 250, 300, 350, 400]
-MARTINGALE_FILE = Path("strategy_results_wr_martingale.csv")
 
 
 def normalize_name(name: str) -> str:
@@ -90,9 +91,10 @@ def build_match_dataset(cs_data, matches_path: Path):
                 continue
 
             dataset.append({
-                "metrics": {"wr_delta": team1_score - team2_score},
-                "odds": {"team1": odds1, "team2": odds2},
-                "winner": winner
+                "delta": team1_score - team2_score,
+                "odds_team1": odds1,
+                "odds_team2": odds2,
+                "winner": winner,
             })
 
     return dataset
@@ -109,12 +111,12 @@ def simulate(dataset, pct, odds_cap):
         bets = wins = losses = 0
 
         for match in dataset:
-            delta = match["metrics"]["wr_delta"]
+            delta = match["delta"]
             if abs(delta) < threshold:
                 continue
 
             predicted = "team1" if delta > 0 else "team2"
-            odds = match["odds"][predicted]
+            odds = match["odds_team1"] if predicted == "team1" else match["odds_team2"]
             if odds >= odds_cap:
                 continue
 
@@ -162,8 +164,15 @@ def simulate(dataset, pct, odds_cap):
 
 
 def main():
-    cs_data = load_cs_data(Path("cs.json"))
-    dataset = build_match_dataset(cs_data, Path("hawk_matches_merged.csv"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cs", default="cs.json")
+    parser.add_argument("--matches", default="hawk_matches_merged.csv")
+    parser.add_argument("--pct-output", default="strategy_results_wr_pct_full.csv")
+    parser.add_argument("--martingale-output", default="strategy_results_wr_martingale.csv")
+    args = parser.parse_args()
+
+    cs_data = load_cs_data(Path(args.cs))
+    dataset = build_match_dataset(cs_data, Path(args.matches))
 
     # Percentage-based strategies
     pct_rows = []
@@ -175,47 +184,114 @@ def main():
         "bets","wins","losses","win_pct","final_bank","profit",
         "total_staked","roi","max_drawdown","max_stake"
     ]
-    with Path("strategy_results_wr_pct_full.csv").open("w", newline="", encoding="utf-8") as f:
+    with Path(args.pct_output).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         writer.writerows(pct_rows)
+
+    # Prepare trade sequences for martingale simulation
+    trade_map = defaultdict(list)
+    for match in dataset:
+        delta = match["delta"]
+        if delta == 0:
+            continue
+        predicted = "team1" if delta > 0 else "team2"
+        odds = match["odds_team1"] if predicted == "team1" else match["odds_team2"]
+        result = (match["winner"] == predicted)
+        abs_delta = abs(delta)
+        for threshold in DELTA_THRESHOLDS:
+            if abs_delta < threshold:
+                continue
+            for cap in ODDS_CAPS:
+                if odds < cap:
+                    trade_map[(cap, threshold)].append((result, odds))
 
     # Martingale analysis (double after loss)
     martingale_rows = []
     for cap in ODDS_CAPS:
         for thresh in DELTA_THRESHOLDS:
-            streak = 0
+            trades = trade_map[(cap, thresh)]
+            if not trades:
+                martingale_rows.append({
+                    "odds_cap": cap,
+                    "delta_threshold": thresh,
+                    "total_trades": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "max_losing_streak": 0,
+                    "base_bet": 0,
+                    "final_bank": START_BANKROLL,
+                    "bankrupt": 0,
+                })
+                continue
+
+            current = 0
             max_streak = 0
-            bankroll = START_BANKROLL
-            losses = wins = bets = 0
-            for match in dataset:
-                delta = match["metrics"]["wr_delta"]
-                if abs(delta) < thresh:
-                    continue
-                predicted = "team1" if delta > 0 else "team2"
-                odds = match["odds"]["team1"] if predicted == "team1" else match["odds"]["team2"]
-                if odds >= cap:
-                    continue
-                bets += 1
-                if match["winner"] == predicted:
+            wins = losses = 0
+            for result, _ in trades:
+                if result:
                     wins += 1
-                    streak = 0
+                    current = 0
                 else:
                     losses += 1
+                    current += 1
+                    max_streak = max(max_streak, current)
+
+            required_bank = (2 ** (max_streak + 1) - 1) if max_streak >= 0 else 1
+            base_bet = START_BANKROLL // required_bank if required_bank else START_BANKROLL
+            if base_bet < 1:
+                martingale_rows.append({
+                    "odds_cap": cap,
+                    "delta_threshold": thresh,
+                    "total_trades": len(trades),
+                    "wins": wins,
+                    "losses": losses,
+                    "max_losing_streak": max_streak,
+                    "base_bet": 0,
+                    "final_bank": START_BANKROLL,
+                    "bankrupt": 1,
+                })
+                continue
+
+            bank = START_BANKROLL
+            streak = 0
+            stake = base_bet
+            bankrupt = 0
+            for result, odds in trades:
+                if stake > bank or stake <= 0:
+                    bankrupt = 1
+                    break
+                if result:
+                    bank += stake * (odds - 1)
+                    streak = 0
+                    stake = base_bet
+                else:
+                    bank -= stake
                     streak += 1
-                    max_streak = max(max_streak, streak)
+                    next_stake = base_bet * (2 ** streak)
+                    stake = next_stake
+                    if bank <= 0:
+                        bank = 0
+                        bankrupt = 1
+                        break
+
             martingale_rows.append({
                 "odds_cap": cap,
                 "delta_threshold": thresh,
-                "total_trades": bets,
+                "total_trades": len(trades),
                 "wins": wins,
                 "losses": losses,
                 "max_losing_streak": max_streak,
-                "final_bank": bankroll,
+                "base_bet": base_bet,
+                "final_bank": max(bank, 0),
+                "bankrupt": bankrupt,
             })
 
-    mart_headers = ["odds_cap","delta_threshold","total_trades","wins","losses","max_losing_streak","final_bank"]
-    with MARTINGALE_FILE.open("w", newline="", encoding="utf-8") as f:
+    mart_headers = [
+        "odds_cap","delta_threshold","total_trades","wins","losses",
+        "max_losing_streak","base_bet","final_bank","bankrupt"
+    ]
+    with Path(args.martingale_output).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=mart_headers)
         writer.writeheader()
         writer.writerows(martingale_rows)
