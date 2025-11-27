@@ -297,7 +297,7 @@ def main():
 
     mart_headers = [
         "odds_cap","delta_threshold","total_trades","wins","losses",
-        "max_losing_streak","base_bet","final_bank","bankrupt"
+        "max_losing_streak","base_bet","final_bank","profit","roi","bankrupt"
     ]
     with Path(args.martingale_output).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=mart_headers)
