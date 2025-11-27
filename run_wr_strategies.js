@@ -4,7 +4,15 @@ const vm = require('vm');
 
 const START_BANKROLL = 1000;
 const MAX_BET = 10000;
-const OUTPUT_DIR = path.join(__dirname, 'strategy_results_wr');
+const SUMMARY_FILE = path.join(__dirname, 'strategy_results_wr_combined.csv');
+const LEAGUE_OUTPUT_DIR = path.join(__dirname, 'league_strategy_results');
+const TARGET_LEAGUES = [
+  'European Pro League 31',
+  'CIS Battle 2',
+  'Fissure Playground 2',
+  'Dreamleague 27 Div 2 Stage 1',
+  'The International 2025',
+];
 
 function loadCsData(csPath) {
   const code = fs.readFileSync(csPath, 'utf8');
@@ -141,6 +149,7 @@ function buildMatchDataset(csData, matches) {
     const underdog = odds1 != null && odds2 != null ? (odds1 > odds2 ? 'team1' : (odds2 > odds1 ? 'team2' : null)) : null;
 
     dataset.push({
+      league: row.championship,
       heroAdv: { team1: team1HeroAdv, team2: team2HeroAdv },
       metrics: { wr_delta: team1Score - team2Score },
       odds: { team1: odds1, team2: odds2 },
@@ -169,7 +178,6 @@ function heroFilterCheck(match, predicted, requirement) {
 }
 
 function getStake(state, strategy) {
-  if (state.bankroll <= 0) return 0;
   let stake = 0;
   switch (strategy.type) {
     case 'flat':
@@ -187,7 +195,6 @@ function getStake(state, strategy) {
     default:
       stake = 0;
   }
-  if (stake > state.bankroll) stake = state.bankroll;
   if (stake > MAX_BET) stake = MAX_BET;
   return stake;
 }
@@ -259,7 +266,6 @@ function simulateThreshold(matches, metricKey, threshold, scenario) {
     } else {
       stats.losses += 1;
       state.bankroll -= stake;
-      if (state.bankroll < 0) state.bankroll = 0;
       updateStakeState(state, strategyConfig, false);
     }
 
@@ -269,24 +275,23 @@ function simulateThreshold(matches, metricKey, threshold, scenario) {
     const drawdown = state.peak - state.bankroll;
     if (drawdown > state.maxDrawdown) state.maxDrawdown = drawdown;
 
-    if (state.bankroll <= 0) break;
+    // bankroll can go negative now; keep betting
   }
 
   const profit = state.bankroll - START_BANKROLL;
-  const roi = stats.bets ? profit / state.totalStaked : 0;
+  const roi = state.totalStaked ? profit / state.totalStaked : 0;
 
   return {
-    metric: metricKey,
-    threshold,
+    delta_threshold: threshold,
     bets: stats.bets,
     wins: stats.wins,
     losses: stats.losses,
-    final_bankroll: state.bankroll.toFixed(2),
-    profit: profit.toFixed(2),
-    total_staked: state.totalStaked.toFixed(2),
-    roi: roi.toFixed(4),
-    max_stake: state.maxStake.toFixed(2),
-    max_drawdown: state.maxDrawdown.toFixed(2),
+    final_bank: state.bankroll,
+    profit,
+    total_staked: state.totalStaked,
+    roi,
+    max_stake: state.maxStake,
+    max_drawdown: state.maxDrawdown,
   };
 }
 
@@ -295,92 +300,253 @@ function runScenario(matches, scenario) {
   for (const metricSpec of METRIC_CONFIG) {
     for (const threshold of metricSpec.thresholds) {
       const result = simulateThreshold(matches, metricSpec.key, threshold, scenario);
-      result.metric = metricSpec.label;
-      rows.push(result);
+      rows.push({
+        strategy_group: scenario.meta.strategy_group,
+        hero_filter: scenario.meta.hero_filter,
+        odds_condition: scenario.meta.odds_condition,
+        metric: metricSpec.label,
+        delta_threshold: result.delta_threshold,
+        bets: result.bets,
+        wins: result.wins,
+        losses: result.losses,
+        final_bank: result.final_bank,
+        profit: result.profit,
+        total_staked: result.total_staked,
+        roi: result.roi,
+        max_stake: result.max_stake,
+        max_drawdown: result.max_drawdown,
+      });
     }
   }
-
-  const headers = Object.keys(rows[0] || {
-    metric: '', threshold: '', bets: '', wins: '', losses: '',
-    final_bankroll: '', profit: '', total_staked: '', roi: '',
-    max_stake: '', max_drawdown: ''
-  });
-
-  const csvLines = [headers.join(',')];
-  rows.forEach(row => {
-    csvLines.push(headers.map(h => row[h]).join(','));
-  });
-
-  const fileName = `${scenario.id}.csv`;
-  fs.writeFileSync(path.join(OUTPUT_DIR, fileName), csvLines.join('\n'), 'utf8');
+  return rows;
 }
 
 function buildScenarios() {
-  function scenario(id, strategy, filters = {}) {
-    return { id, strategy, filters: Object.assign({ requireUnderdog: false, requireFavorite: false, heroRequirement: null }, filters) };
-  }
-
-  const list = [];
-
   const baseFilters = [
     { suffix: 'all', filters: {} },
     { suffix: 'underdogs', filters: { requireUnderdog: true } },
     { suffix: 'favorites', filters: { requireFavorite: true } },
   ];
 
+  function normalizeFilters(filters = {}) {
+    return Object.assign({ requireUnderdog: false, requireFavorite: false, heroRequirement: null }, filters);
+  }
+
+  function heroFilterLabel(filters) {
+    if (filters.heroRequirement === '4+4') return '4+4';
+    if (filters.heroRequirement === '5+5') return '5+5';
+    return 'none';
+  }
+
+  function oddsConditionLabel(filters) {
+    if (filters.requireUnderdog) return 'underdog';
+    if (filters.requireFavorite) return 'favorite';
+    return 'any';
+  }
+
+  function scenario(id, strategyGroup, strategy, filters = {}) {
+    const normalized = normalizeFilters(filters);
+    return {
+      id,
+      strategy,
+      filters: normalized,
+      meta: {
+        strategy_group: strategyGroup,
+        hero_filter: heroFilterLabel(normalized),
+        odds_condition: oddsConditionLabel(normalized),
+      },
+    };
+  }
+
+  const list = [];
+
   // 1-3 Flat $100 base
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 1).padStart(2, '0')}_flat100_${entry.suffix}`, { type: 'flat', amount: 100 }, entry.filters));
+    list.push(scenario(
+      `scenario_${String(idx + 1).padStart(2, '0')}_flat100_${entry.suffix}`,
+      'Flat100',
+      { type: 'flat', amount: 100 },
+      entry.filters
+    ));
   });
 
   // 4-6 5% bankroll per bet
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 4).padStart(2, '0')}_pct5_${entry.suffix}`, { type: 'bankroll_pct', pct: 0.05 }, entry.filters));
+    list.push(scenario(
+      `scenario_${String(idx + 4).padStart(2, '0')}_pct5_${entry.suffix}`,
+      'Bankroll5pct',
+      { type: 'bankroll_pct', pct: 0.05 },
+      entry.filters
+    ));
   });
 
   // 7-9 Flat $100 with 4+4 hero filter
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 7).padStart(2, '0')}_flat100_4p_${entry.suffix}`, { type: 'flat', amount: 100 }, Object.assign({}, entry.filters, { heroRequirement: '4+4' })));
+    list.push(scenario(
+      `scenario_${String(idx + 7).padStart(2, '0')}_flat100_4p_${entry.suffix}`,
+      'Flat100',
+      { type: 'flat', amount: 100 },
+      Object.assign({}, entry.filters, { heroRequirement: '4+4' })
+    ));
   });
 
   // 10-12 Flat 5% initial with 4+4
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 10).padStart(2, '0')}_flat5pct_4p_${entry.suffix}`, { type: 'flat_pct_initial', pct: 0.05 }, Object.assign({}, entry.filters, { heroRequirement: '4+4' })));
+    list.push(scenario(
+      `scenario_${String(idx + 10).padStart(2, '0')}_flat5pct_4p_${entry.suffix}`,
+      'Flat5PctInitial',
+      { type: 'flat_pct_initial', pct: 0.05 },
+      Object.assign({}, entry.filters, { heroRequirement: '4+4' })
+    ));
   });
 
   // 13-15 Flat $100 with 5+5
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 13).padStart(2, '0')}_flat100_5p_${entry.suffix}`, { type: 'flat', amount: 100 }, Object.assign({}, entry.filters, { heroRequirement: '5+5' })));
+    list.push(scenario(
+      `scenario_${String(idx + 13).padStart(2, '0')}_flat100_5p_${entry.suffix}`,
+      'Flat100',
+      { type: 'flat', amount: 100 },
+      Object.assign({}, entry.filters, { heroRequirement: '5+5' })
+    ));
   });
 
   // 16-18 Flat 5% initial with 5+5
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 16).padStart(2, '0')}_flat5pct_5p_${entry.suffix}`, { type: 'flat_pct_initial', pct: 0.05 }, Object.assign({}, entry.filters, { heroRequirement: '5+5' })));
+    list.push(scenario(
+      `scenario_${String(idx + 16).padStart(2, '0')}_flat5pct_5p_${entry.suffix}`,
+      'Flat5PctInitial',
+      { type: 'flat_pct_initial', pct: 0.05 },
+      Object.assign({}, entry.filters, { heroRequirement: '5+5' })
+    ));
   });
 
   // Fibonacci $1 unit (19-27)
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 19).padStart(2, '0')}_fib1_${entry.suffix}`, { type: 'fibonacci', unit: 1 }, entry.filters));
+    list.push(scenario(
+      `scenario_${String(idx + 19).padStart(2, '0')}_fib1_${entry.suffix}`,
+      'Fibonacci_$1',
+      { type: 'fibonacci', unit: 1 },
+      entry.filters
+    ));
   });
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 22).padStart(2, '0')}_fib1_4p_${entry.suffix}`, { type: 'fibonacci', unit: 1 }, Object.assign({}, entry.filters, { heroRequirement: '4+4' })));
+    list.push(scenario(
+      `scenario_${String(idx + 22).padStart(2, '0')}_fib1_4p_${entry.suffix}`,
+      'Fibonacci_$1',
+      { type: 'fibonacci', unit: 1 },
+      Object.assign({}, entry.filters, { heroRequirement: '4+4' })
+    ));
   });
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 25).padStart(2, '0')}_fib1_5p_${entry.suffix}`, { type: 'fibonacci', unit: 1 }, Object.assign({}, entry.filters, { heroRequirement: '5+5' })));
+    list.push(scenario(
+      `scenario_${String(idx + 25).padStart(2, '0')}_fib1_5p_${entry.suffix}`,
+      'Fibonacci_$1',
+      { type: 'fibonacci', unit: 1 },
+      Object.assign({}, entry.filters, { heroRequirement: '5+5' })
+    ));
   });
 
   // Fibonacci $5 unit (28-36)
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 28).padStart(2, '0')}_fib5_${entry.suffix}`, { type: 'fibonacci', unit: 5 }, entry.filters));
+    list.push(scenario(
+      `scenario_${String(idx + 28).padStart(2, '0')}_fib5_${entry.suffix}`,
+      'Fibonacci_$5',
+      { type: 'fibonacci', unit: 5 },
+      entry.filters
+    ));
   });
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 31).padStart(2, '0')}_fib5_4p_${entry.suffix}`, { type: 'fibonacci', unit: 5 }, Object.assign({}, entry.filters, { heroRequirement: '4+4' })));
+    list.push(scenario(
+      `scenario_${String(idx + 31).padStart(2, '0')}_fib5_4p_${entry.suffix}`,
+      'Fibonacci_$5',
+      { type: 'fibonacci', unit: 5 },
+      Object.assign({}, entry.filters, { heroRequirement: '4+4' })
+    ));
   });
   baseFilters.forEach((entry, idx) => {
-    list.push(scenario(`scenario_${String(idx + 34).padStart(2, '0')}_fib5_5p_${entry.suffix}`, { type: 'fibonacci', unit: 5 }, Object.assign({}, entry.filters, { heroRequirement: '5+5' })));
+    list.push(scenario(
+      `scenario_${String(idx + 34).padStart(2, '0')}_fib5_5p_${entry.suffix}`,
+      'Fibonacci_$5',
+      { type: 'fibonacci', unit: 5 },
+      Object.assign({}, entry.filters, { heroRequirement: '5+5' })
+    ));
   });
 
   return list;
+}
+
+function formatRows(rows) {
+  const roundIntStr = val => Math.round(val || 0).toString();
+  const roundFixed = (val, digits) => {
+    const factor = Math.pow(10, digits);
+    return (Math.round((val || 0) * factor) / factor).toFixed(digits);
+  };
+
+  return rows.map(row => {
+    const bets = row.bets || 0;
+    const wins = row.wins || 0;
+    const winPct = bets ? (wins / bets) * 100 : 0;
+    return {
+      strategy_group: row.strategy_group,
+      hero_filter: row.hero_filter,
+      odds_condition: row.odds_condition,
+      metric: row.metric,
+      delta_threshold: row.delta_threshold,
+      bets: roundIntStr(bets),
+      wins: roundIntStr(wins),
+      losses: roundIntStr(row.losses || 0),
+      win_pct: roundFixed(winPct, 2),
+      final_bank: roundIntStr(row.final_bank),
+      profit: roundIntStr(row.profit),
+      total_staked: roundIntStr(row.total_staked),
+      roi: roundFixed(row.roi || 0, 4),
+      max_drawdown: roundIntStr(row.max_drawdown),
+      max_stake: roundIntStr(row.max_stake),
+    };
+  });
+}
+
+function writeSummaryCsv(rows, outputPath) {
+  const header = [
+    'strategy_group',
+    'hero_filter',
+    'odds_condition',
+    'metric',
+    'delta_threshold',
+    'bets',
+    'wins',
+    'losses',
+    'win_pct',
+    'final_bank',
+    'profit',
+    'total_staked',
+    'roi',
+    'max_drawdown',
+    'max_stake',
+  ];
+  const formatted = formatRows(rows);
+  const lines = [header.join(',')];
+  formatted.forEach(row => {
+    lines.push(header.map(key => row[key]).join(','));
+  });
+  fs.writeFileSync(outputPath, lines.join('\n'), 'utf8');
+}
+
+function slugify(name) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function runSuite(matches, scenarios, outputPath) {
+  const allRows = [];
+  for (const scenario of scenarios) {
+    console.log(`Running ${scenario.id}`);
+    const rows = runScenario(matches, scenario);
+    allRows.push(...rows);
+  }
+  writeSummaryCsv(allRows, outputPath);
 }
 
 function main() {
@@ -388,12 +554,18 @@ function main() {
   const matches = parseCsv(fs.readFileSync(path.join(__dirname, 'hawk_matches_merged.csv'), 'utf8'));
   const dataset = buildMatchDataset(csData, matches);
   const scenarios = buildScenarios();
-  ensureDir(OUTPUT_DIR);
+
   console.log(`Total matches usable: ${dataset.length}`);
-  for (const scenario of scenarios) {
-    console.log(`Running ${scenario.id}`);
-    runScenario(dataset, scenario);
-  }
+  runSuite(dataset, scenarios, SUMMARY_FILE);
+
+  TARGET_LEAGUES.forEach(leagueName => {
+    const leagueMatches = dataset.filter(match => match.league === leagueName);
+    const slug = slugify(leagueName);
+    const leagueDir = path.join(LEAGUE_OUTPUT_DIR, slug);
+    ensureDir(leagueDir);
+    console.log(`Running league suite for ${leagueName} (${leagueMatches.length} matches)`);
+    runSuite(leagueMatches, scenarios, path.join(leagueDir, 'wr.csv'));
+  });
 }
 
 main();
