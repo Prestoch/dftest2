@@ -211,9 +211,10 @@ def main():
                 "wins": wins,
                 "losses": losses,
                 "max_losing_streak": max_streak,
+                "final_bank": bankroll,
             })
 
-    mart_headers = ["odds_cap","delta_threshold","total_trades","wins","losses","max_losing_streak"]
+    mart_headers = ["odds_cap","delta_threshold","total_trades","wins","losses","max_losing_streak","final_bank"]
     with MARTINGALE_FILE.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=mart_headers)
         writer.writeheader()
