@@ -187,7 +187,12 @@ def main():
     with Path(args.pct_output).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
-        writer.writerows(pct_rows)
+        for row in pct_rows:
+            for key in ["delta_threshold","bets","wins","losses","final_bank","profit","total_staked","max_drawdown","max_stake"]:
+                row[key] = int(round(row[key]))
+            row["win_pct"] = f"{row['win_pct']:.2f}"
+            row["roi"] = f"{row['roi']:.4f}"
+            writer.writerow(row)
 
     # Prepare trade sequences for martingale simulation
     trade_map = defaultdict(list)
@@ -278,13 +283,13 @@ def main():
             martingale_rows.append({
                 "odds_cap": cap,
                 "delta_threshold": thresh,
-                "total_trades": len(trades),
-                "wins": wins,
-                "losses": losses,
-                "max_losing_streak": max_streak,
-                "base_bet": base_bet,
-                "final_bank": max(bank, 0),
-                "bankrupt": bankrupt,
+                "total_trades": int(len(trades)),
+                "wins": int(wins),
+                "losses": int(losses),
+                "max_losing_streak": int(max_streak),
+                "base_bet": int(base_bet),
+                "final_bank": int(round(max(bank, 0))),
+                "bankrupt": int(bankrupt),
             })
 
     mart_headers = [
