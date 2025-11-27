@@ -7,6 +7,7 @@ MAX_BET = 10000
 PERCENTS = [0.10, 0.20, 0.30, 0.40, 0.50]
 ODDS_CAPS = [1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3, 1.2]
 DELTA_THRESHOLDS = [50, 100, 150, 200, 250, 300, 350, 400]
+MARTINGALE_FILE = Path("strategy_results_wr_martingale.csv")
 
 
 def normalize_name(name: str) -> str:
@@ -164,21 +165,59 @@ def main():
     cs_data = load_cs_data(Path("cs.json"))
     dataset = build_match_dataset(cs_data, Path("hawk_matches_merged.csv"))
 
-    rows = []
+    # Percentage-based strategies
+    pct_rows = []
     for pct in PERCENTS:
         for odds_cap in ODDS_CAPS:
-            rows.extend(simulate(dataset, pct, odds_cap))
-
+            pct_rows.extend(simulate(dataset, pct, odds_cap))
     headers = [
         "strategy_group","hero_filter","odds_condition","metric","delta_threshold",
         "bets","wins","losses","win_pct","final_bank","profit",
         "total_staked","roi","max_drawdown","max_stake"
     ]
-
     with Path("strategy_results_wr_pct_full.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(pct_rows)
+
+    # Martingale analysis (double after loss)
+    martingale_rows = []
+    for cap in ODDS_CAPS:
+        for thresh in DELTA_THRESHOLDS:
+            streak = 0
+            max_streak = 0
+            bankroll = START_BANKROLL
+            losses = wins = bets = 0
+            for match in dataset:
+                delta = match["metrics"]["wr_delta"]
+                if abs(delta) < thresh:
+                    continue
+                predicted = "team1" if delta > 0 else "team2"
+                odds = match["odds"]["team1"] if predicted == "team1" else match["odds"]["team2"]
+                if odds >= cap:
+                    continue
+                bets += 1
+                if match["winner"] == predicted:
+                    wins += 1
+                    streak = 0
+                else:
+                    losses += 1
+                    streak += 1
+                    max_streak = max(max_streak, streak)
+            martingale_rows.append({
+                "odds_cap": cap,
+                "delta_threshold": thresh,
+                "total_trades": bets,
+                "wins": wins,
+                "losses": losses,
+                "max_losing_streak": max_streak,
+            })
+
+    mart_headers = ["odds_cap","delta_threshold","total_trades","wins","losses","max_losing_streak"]
+    with MARTINGALE_FILE.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=mart_headers)
+        writer.writeheader()
+        writer.writerows(martingale_rows)
 
 
 if __name__ == "__main__":
