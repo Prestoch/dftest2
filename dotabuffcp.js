@@ -348,7 +348,7 @@ var HERO_METRIC_INLINE_CONFIG = [
   { key: 'heroes_xpm', className: 'xpm-label', decimals: 0 },
   { key: 'heroes_hero_damage', className: 'hd-label', decimals: 0 },
   { key: 'heroes_tower_damage', className: 'td-label', decimals: 0 },
-  { key: 'heroes_damage_taken', className: 'dt-label', decimals: 0 }
+  { key: 'heroes_match_duration', className: 'dur-label', aggregate: 'avg', decimals: 1 },
 ];
 
 
