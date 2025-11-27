@@ -343,12 +343,38 @@ var MetricDeltaHelper = (function () {
   return { collect: collect };
 })();
 
+  function getAverageDurationForLineup(lineup) {
+    if (typeof window === 'undefined') return null;
+    var durations = window.heroes_match_duration;
+    if (!Array.isArray(durations)) return null;
+    var total = 0;
+    var count = 0;
+    for (var i = 0; i < lineup.length; i++) {
+      var heroIdx = parseInt(lineup[i], 10);
+      if (isNaN(heroIdx) || heroIdx < 0 || heroIdx >= durations.length) continue;
+      var value = parseFloat(durations[heroIdx]);
+      if (!isNaN(value)) {
+        total += value;
+        count++;
+      }
+    }
+    return count ? total / count : null;
+  }
+
+  function formatDurationValue(value, decimals) {
+    if (!isFinite(value)) return '--';
+    var precision = typeof decimals === 'number' ? decimals : 1;
+    var text = value.toFixed(precision);
+    text = text.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+    return text + 'm';
+  }
+
 var HERO_METRIC_INLINE_CONFIG = [
   { key: 'heroes_gpm', className: 'gpm-label', decimals: 0 },
   { key: 'heroes_xpm', className: 'xpm-label', decimals: 0 },
   { key: 'heroes_hero_damage', className: 'hd-label', decimals: 0 },
   { key: 'heroes_tower_damage', className: 'td-label', decimals: 0 },
-  { key: 'heroes_damage_taken', className: 'dt-label', decimals: 0 }
+  { key: 'heroes_match_duration', className: 'dur-label', aggregate: 'avg', decimals: 1 },
 ];
 
 
@@ -670,6 +696,9 @@ var MainView = Backbone.View.extend ({
 
     if (is_full) {
       
+      var durationTop = getAverageDurationForLineup(DotaBuffCP.lineup);
+      var durationBottom = getAverageDurationForLineup(DotaBuffCP.lineup2);
+
       var sumNb1a = 0.0;
       var sumNb2a = 0.0;
       for (var i=0; i <5; i++) {
@@ -710,6 +739,12 @@ var MainView = Backbone.View.extend ({
       }
       var rightSum1 = "<div class=\"col-md-1 col-xs-1\" style=\"text-align:right\">" + nb1.toFixed(2) + "</div>";
       var rightSum2 = "<div class=\"col-md-1 col-xs-1\" style=\"text-align:right\">" + nb2.toFixed(2) + "</div>";
+      if (durationTop !== null) {
+        rightSum1 = "<div class=\"col-md-1 col-xs-1\" style=\"text-align:right\">" + nb1.toFixed(2) + " <span class=\"avg-duration\">" + formatDurationValue(durationTop, 1) + "</span></div>";
+      }
+      if (durationBottom !== null) {
+        rightSum2 = "<div class=\"col-md-1 col-xs-1\" style=\"text-align:right\">" + nb2.toFixed(2) + " <span class=\"avg-duration\">" + formatDurationValue(durationBottom, 1) + "</span></div>";
+      }
       $('#score1').html(data + rightSum1);
       $('#score2').html(data2 + rightSum2);
         var wrdelta = (nb1 - nb2);
@@ -793,17 +828,25 @@ var MainView = Backbone.View.extend ({
       if (!metricRows || !metricRows.length) {
         return badges.length ? "<div class='metric-badge-group'>" + badges.join('') + "</div>" : '';
       }
-      var rowsHtml = metricRows.map(function (row) {
-      var label = _.escape(row.label || '');
-      var decimals = typeof row.decimals === 'number' ? row.decimals : 2;
-      var suffix = row.suffix || '';
-      var deltaValue = row.delta.toFixed(decimals);
-      var badgeClass = row.delta >= 0 ? 'alert alert-success' : 'alert alert-danger';
-      var formattedDelta = (row.delta >= 0 ? '+' : '') + deltaValue;
-        return "<span class='" + badgeClass + " metric-badge-bubble'>" +
-          label + " " + formattedDelta + suffix +
-        "</span>";
-    }).join('');
+        var rowsHtml = metricRows.map(function (row) {
+        var label = _.escape(row.label || '');
+        var decimals = typeof row.decimals === 'number' ? row.decimals : 2;
+        if (row.label === 'DUR') {
+          var infoClass = 'alert alert-info';
+          var topAvg = formatDurationValue(row.top, decimals);
+          var bottomAvg = formatDurationValue(row.bottom, decimals);
+          return "<span class='" + infoClass + " metric-badge-bubble'>" +
+            label + " " + topAvg + " / " + bottomAvg +
+          "</span>";
+        }
+        var suffix = row.suffix || '';
+        var deltaValue = row.delta.toFixed(decimals);
+        var badgeClass = row.delta >= 0 ? 'alert alert-success' : 'alert alert-danger';
+        var formattedDelta = (row.delta >= 0 ? '+' : '') + deltaValue;
+          return "<span class='" + badgeClass + " metric-badge-bubble'>" +
+            label + " " + formattedDelta + suffix +
+          "</span>";
+      }).join('');
       badges.push(rowsHtml);
       return "<div class='metric-badge-group'>" + badges.join('') + "</div>";
   }
