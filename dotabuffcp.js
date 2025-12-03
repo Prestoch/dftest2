@@ -188,14 +188,26 @@ var DotaBuffCP = {
       if (hid == -1)
         continue;
 
+      // Add hero's base win rate to the calculation
+      var heroWR = Array.isArray(heroes_wr) && heroes_wr[hid] != null ? parseFloat(heroes_wr[hid]) : 50.0;
+
       for (var i = 0; i < heroes.length; ++i) {
         if (_.isUndefined (win_rates[hid][i]) || _.isNull (win_rates[hid][i]))
           continue;
-        //if (nb==4) {
-        //  advantages[i] += parseFloat (win_rates[i][hid][0])*-1;        
-        //} else {
-          advantages[i] += parseFloat (win_rates[hid][i][0]);        
-        //}
+        
+        // Counter advantage (element [0])
+        advantages[i] += parseFloat (win_rates[hid][i][0]);
+        
+        // Add synergy if available (element [3])
+        // Synergy represents how well this hero works with teammates
+        if (win_rates[hid][i].length > 3 && !_.isUndefined(win_rates[hid][i][3]) && !_.isNull(win_rates[hid][i][3])) {
+          advantages[i] += parseFloat(win_rates[hid][i][3]);
+        }
+      }
+      
+      // Add hero win rate contribution (distributed across all enemy heroes)
+      for (var i = 0; i < heroes.length; ++i) {
+        advantages[i] += (heroWR - 50.0) / heroes.length;
       }
 
     }
@@ -216,10 +228,25 @@ var DotaBuffCP = {
       if (_.isUndefined(win_rates[hid]) || _.isNull(win_rates[hid]))
         continue;
 
+      // Add hero's base win rate to the calculation
+      var heroWR = Array.isArray(heroes_wr) && heroes_wr[hid] != null ? parseFloat(heroes_wr[hid]) : 50.0;
+
       for (var i = 0; i < heroes.length; ++i) {
         if (_.isUndefined (win_rates[hid][i]) || _.isNull (win_rates[hid][i]))
           continue;
+        
+        // Counter advantage (element [0])
         advantages[i] += parseFloat (win_rates[hid][i][0]);
+        
+        // Add synergy if available (element [3])
+        if (win_rates[hid][i].length > 3 && !_.isUndefined(win_rates[hid][i][3]) && !_.isNull(win_rates[hid][i][3])) {
+          advantages[i] += parseFloat(win_rates[hid][i][3]);
+        }
+      }
+      
+      // Add hero win rate contribution (distributed across all enemy heroes)
+      for (var i = 0; i < heroes.length; ++i) {
+        advantages[i] += (heroWR - 50.0) / heroes.length;
       }
     }
 

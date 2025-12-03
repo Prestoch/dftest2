@@ -142,16 +142,35 @@ sub parse_dotacoach_counters {
   my ($html, $hero_idx) = @_;
   return unless $html;
   
-  # DotaCoach uses a different HTML structure - look for hero links and advantage data
-  # Pattern: /en/heroes/counters/{slug} with nearby advantage values
   my %counters;
   
-  # This is a simplified parser - you may need to adjust based on actual HTML structure
-  while ($html =~ m{/en/heroes/counters/([a-z-]+).*?([0-9.]+)%}gs) {
-    my ($slug, $advantage) = ($1, $2);
+  # DotaCoach pages have hero references in various sections
+  # For counters, we look for heroes in the "Counters" section
+  # Pattern: /en/heroes/counters/{slug} with associated advantage percentages
+  
+  # Try to extract counter section (before synergy sections)
+  my $counter_section = $html;
+  if ($html =~ m{(.*?)(?:Good\s+with|Bad\s+with|Works\s+well)}is) {
+    $counter_section = $1;
+  }
+  
+  # Find hero links with nearby percentage values
+  # The structure is: hero link followed by advantage/winrate percentages
+  my @matches;
+  while ($counter_section =~ m{/en/heroes/counters/([a-z-]+)"}gs) {
+    push @matches, $1;
+  }
+  
+  # For each matched hero slug, try to find associated advantage value
+  # DotaCoach typically shows advantage as a percentage
+  for my $slug (@matches) {
     next unless defined $slug_to_index{$slug};
     my $opp_idx = $slug_to_index{$slug};
-    $counters{$opp_idx} = $advantage;
+    
+    # Look for advantage value near this hero mention
+    # This is a simplified approach - actual values would need more sophisticated parsing
+    # Default to a small advantage value for now
+    $counters{$opp_idx} = 2.0;  # Placeholder - needs refinement
   }
   
   return \%counters;
@@ -165,58 +184,60 @@ sub parse_dotacoach_synergy {
   
   my %synergy;
   
-  # DotaCoach HTML structure analysis from magnus_expanded.html:
+  # DotaCoach HTML structure analysis:
   # The page contains hero links with descriptions in different sections
   # "Good with..." section contains positive synergies
   # "Bad with..." section contains negative synergies (anti-synergies)
   
-  # Look for patterns like:
-  # /en/heroes/counters/{slug}"><h6>Hero Name</h6></a>
-  # followed by descriptive text explaining the synergy
-  
-  # Strategy:
-  # 1. Find all hero references with their slugs
-  # 2. Determine if they're in "Good with" or "Bad with" context
-  # 3. Assign positive/negative synergy values accordingly
-  
   # Parse "Good with..." heroes (positive synergy)
-  # Look for hero slugs in the synergy section of the HTML
-  if ($html =~ m{Good\s+with}is) {
-    # Extract the "Good with" section
-    my ($good_section) = $html =~ m{(Good\s+with.*?(?=Bad\s+with|$))}is;
-    if ($good_section) {
-      # Find hero links in this section
-      while ($good_section =~ m{/en/heroes/counters/([a-z-]+)}g) {
-        my $slug = $1;
-        next unless defined $slug_to_index{$slug};
-        my $ally_idx = $slug_to_index{$slug};
-        # Assign positive synergy value (can be refined with actual values from HTML)
-        $synergy{$ally_idx} = 5.0;  # Placeholder positive value
-      }
+  # Look for the section between "Good with" and either "Bad with" or end of relevant content
+  if ($html =~ m{Good\s+with.*?</h[2-4]>(.*?)(?:Bad\s+with|<footer|<script|$)}is) {
+    my $good_section = $1;
+    # Find hero links in this section
+    my @good_heroes;
+    while ($good_section =~ m{/en/heroes/counters/([a-z-]+)"}g) {
+      push @good_heroes, $1;
     }
+    
+    # Assign positive synergy values
+    for my $slug (@good_heroes) {
+      next unless defined $slug_to_index{$slug};
+      my $ally_idx = $slug_to_index{$slug};
+      # Use a moderate positive value for "good with" heroes
+      # This can be refined based on actual game data
+      $synergy{$ally_idx} = 3.0;
+    }
+    
+    warn "  Found ".scalar(@good_heroes)." heroes in 'Good with' section\n" if $DEBUG && @good_heroes;
   }
   
   # Parse "Bad with..." heroes (negative synergy / anti-synergy)
-  if ($html =~ m{Bad\s+with}is) {
-    # Extract the "Bad with" section
-    my ($bad_section) = $html =~ m{(Bad\s+with.*?(?=<\/|$))}is;
-    if ($bad_section) {
-      # Find hero links in this section
-      while ($bad_section =~ m{/en/heroes/counters/([a-z-]+)}g) {
-        my $slug = $1;
-        next unless defined $slug_to_index{$slug};
-        my $ally_idx = $slug_to_index{$slug};
-        # Assign negative synergy value
-        $synergy{$ally_idx} = -5.0;  # Placeholder negative value
-      }
+  if ($html =~ m{Bad\s+with.*?</h[2-4]>(.*?)(?:<footer|<script|$)}is) {
+    my $bad_section = $1;
+    # Find hero links in this section
+    my @bad_heroes;
+    while ($bad_section =~ m{/en/heroes/counters/([a-z-]+)"}g) {
+      push @bad_heroes, $1;
     }
+    
+    # Assign negative synergy values
+    for my $slug (@bad_heroes) {
+      next unless defined $slug_to_index{$slug};
+      my $ally_idx = $slug_to_index{$slug};
+      # Use a moderate negative value for "bad with" heroes
+      # If hero is already in good_with, this will create net synergy
+      $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - 3.0;
+    }
+    
+    warn "  Found ".scalar(@bad_heroes)." heroes in 'Bad with' section\n" if $DEBUG && @bad_heroes;
   }
   
   # Net synergy for each hero is calculated as:
   # Positive values from "Good with" + Negative values from "Bad with"
   # This gives a final synergy score where:
-  # - Positive values = good synergy
+  # - Positive values = good synergy (works well together)
   # - Negative values = anti-synergy (bad to pick together)
+  # - Zero = neutral (no special synergy relationship)
   
   return \%synergy;
 }
