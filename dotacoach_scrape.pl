@@ -119,7 +119,8 @@ sub get_heroes_from_cs {
   local $/;
   my $s = <$fh>;
   close $fh;
-  my ($arr) = $s =~ m{var\s+heroes\s*=\s*(\[[^;]+\])};
+  # Match the heroes array more precisely - stop at the closing bracket followed by comma or semicolon
+  my ($arr) = $s =~ m{var\s+heroes\s*=\s*(\[.*?\])\s*[,;]};
   return unless $arr;
   my $j;
   eval { $j = decode_json($arr); };
