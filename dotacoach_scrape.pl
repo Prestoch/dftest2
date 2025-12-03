@@ -139,39 +139,61 @@ sub get_heroes_from_cs {
 }
 
 # Parse counter data from dotacoach.gg HTML
+# "Good against" = positive advantage (heroes we counter)
+# "Bad against" = negative advantage (heroes that counter us)
 sub parse_dotacoach_counters {
   my ($html, $hero_idx) = @_;
   return unless $html;
   
   my %counters;
   
-  # DotaCoach pages have hero references in various sections
-  # For counters, we look for heroes in the "Counters" section
-  # Pattern: /en/heroes/counters/{slug} with associated advantage percentages
+  # Pattern for extracting hero slug and win rate change from DotaCoach HTML
+  # Example: href="/en/heroes/counters/monkey-king"...>7.5%</p>
+  # or: href="/en/heroes/counters/juggernaut"...<p...gt="" -6.4<="" --="" <="" p="">
   
-  # Try to extract counter section (before synergy sections)
-  my $counter_section = $html;
-  if ($html =~ m{(.*?)(?:Good\s+with|Bad\s+with|Works\s+well)}is) {
-    $counter_section = $1;
+  # Parse "Good against" section (heroes this hero counters)
+  # These get positive advantage values
+  if ($html =~ m{Good\s+against.*?<table.*?<tbody>(.*?)</tbody>}is) {
+    my $good_against = $1;
+    # Match hero slug and percentage in table rows
+    while ($good_against =~ m{href="/en/heroes/counters/([a-z-]+)".*?<p[^>]*>([0-9.]+)<!--\s*-->%</p>}gs) {
+      my ($slug, $pct) = ($1, $2);
+      next unless defined $slug_to_index{$slug};
+      my $opp_idx = $slug_to_index{$slug};
+      $counters{$opp_idx} = $pct;
+    }
+    warn "  Found ".scalar(keys %counters)." heroes in 'Good against' section\n" if $DEBUG;
   }
   
-  # Find hero links with nearby percentage values
-  # The structure is: hero link followed by advantage/winrate percentages
-  my @matches;
-  while ($counter_section =~ m{/en/heroes/counters/([a-z-]+)"}gs) {
-    push @matches, $1;
-  }
-  
-  # For each matched hero slug, try to find associated advantage value
-  # DotaCoach typically shows advantage as a percentage
-  for my $slug (@matches) {
-    next unless defined $slug_to_index{$slug};
-    my $opp_idx = $slug_to_index{$slug};
-    
-    # Look for advantage value near this hero mention
-    # This is a simplified approach - actual values would need more sophisticated parsing
-    # Default to a small advantage value for now
-    $counters{$opp_idx} = 2.0;  # Placeholder - needs refinement
+  # Parse "Bad against" section (heroes that counter this hero)
+  # These get negative advantage values
+  if ($html =~ m{Bad\s+against.*?<table.*?<tbody>(.*?)</tbody>}is) {
+    my $bad_against = $1;
+    my $bad_count = 0;
+    # Match hero slug and percentage in table rows
+    # Note: percentages might be encoded as "gt="" -6.4<="" --="" <="" p="">" or similar
+    while ($bad_against =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
+      my $slug = $1;
+      next unless defined $slug_to_index{$slug};
+      my $opp_idx = $slug_to_index{$slug};
+      
+      # Try to find the percentage value after this hero link
+      # Look for patterns like ">7.5%</p>" or "gt="" -6.4<="" --="" <="" p="">"
+      my $pos = pos($bad_against);
+      my $remaining = substr($bad_against, $pos, 500);
+      
+      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
+        my $pct = $1;
+        # Bad against means negative advantage
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+      } elsif ($remaining =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+      }
+    }
+    warn "  Found $bad_count heroes in 'Bad against' section\n" if $DEBUG;
   }
   
   return \%counters;
@@ -185,52 +207,57 @@ sub parse_dotacoach_synergy {
   
   my %synergy;
   
-  # DotaCoach HTML structure analysis:
-  # The page contains hero links with descriptions in different sections
-  # "Good with..." section contains positive synergies
-  # "Bad with..." section contains negative synergies (anti-synergies)
-  
-  # Parse "Good with..." heroes (positive synergy)
-  # Look for the section between "Good with" and either "Bad with" or end of relevant content
-  if ($html =~ m{Good\s+with.*?</h[2-4]>(.*?)(?:Bad\s+with|<footer|<script|$)}is) {
-    my $good_section = $1;
-    # Find hero links in this section
-    my @good_heroes;
-    while ($good_section =~ m{/en/heroes/counters/([a-z-]+)"}g) {
-      push @good_heroes, $1;
-    }
-    
-    # Assign positive synergy values
-    for my $slug (@good_heroes) {
+  # Parse "Good with" section (heroes that work well together)
+  # These get positive synergy values
+  if ($html =~ m{Good\s+with.*?<table.*?<tbody>(.*?)</tbody>}is) {
+    my $good_with = $1;
+    my $good_count = 0;
+    # Match hero slug and percentage in table rows
+    while ($good_with =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
+      my $slug = $1;
       next unless defined $slug_to_index{$slug};
       my $ally_idx = $slug_to_index{$slug};
-      # Use a moderate positive value for "good with" heroes
-      # This can be refined based on actual game data
-      $synergy{$ally_idx} = 3.0;
+      
+      # Try to find the percentage value after this hero link
+      my $pos = pos($good_with);
+      my $remaining = substr($good_with, $pos, 500);
+      
+      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = $pct;
+        $good_count++;
+      }
     }
-    
-    warn "  Found ".scalar(@good_heroes)." heroes in 'Good with' section\n" if $DEBUG && @good_heroes;
+    warn "  Found $good_count heroes in 'Good with' section\n" if $DEBUG && $good_count;
   }
   
-  # Parse "Bad with..." heroes (negative synergy / anti-synergy)
-  if ($html =~ m{Bad\s+with.*?</h[2-4]>(.*?)(?:<footer|<script|$)}is) {
-    my $bad_section = $1;
-    # Find hero links in this section
-    my @bad_heroes;
-    while ($bad_section =~ m{/en/heroes/counters/([a-z-]+)"}g) {
-      push @bad_heroes, $1;
-    }
-    
-    # Assign negative synergy values
-    for my $slug (@bad_heroes) {
+  # Parse "Bad with" section (heroes that work poorly together)
+  # These get negative synergy values
+  if ($html =~ m{Bad\s+with.*?<table.*?<tbody>(.*?)</tbody>}is) {
+    my $bad_with = $1;
+    my $bad_count = 0;
+    # Match hero slug and percentage in table rows
+    while ($bad_with =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
+      my $slug = $1;
       next unless defined $slug_to_index{$slug};
       my $ally_idx = $slug_to_index{$slug};
-      # Use a moderate negative value for "bad with" heroes
-      # If hero is already in good_with, this will create net synergy
-      $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - 3.0;
+      
+      # Try to find the percentage value after this hero link
+      my $pos = pos($bad_with);
+      my $remaining = substr($bad_with, $pos, 500);
+      
+      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
+        my $pct = $1;
+        # Bad with means negative synergy
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+      } elsif ($remaining =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+      }
     }
-    
-    warn "  Found ".scalar(@bad_heroes)." heroes in 'Bad with' section\n" if $DEBUG && @bad_heroes;
+    warn "  Found $bad_count heroes in 'Bad with' section\n" if $DEBUG && $bad_count;
   }
   
   # Net synergy for each hero is calculated as:
@@ -243,6 +270,26 @@ sub parse_dotacoach_synergy {
   return \%synergy;
 }
 
+# Parse hero win rate from hero's main page
+sub get_hero_winrate {
+  my ($slug) = @_;
+  my $url = 'https://dotacoach.gg/en/heroes/'.$slug;
+  
+  warn "  Fetching win rate from $url\n" if $DEBUG;
+  
+  my $html = fetch_html($url);
+  return 50.0 unless $html;
+  
+  # Pattern: <h2...>Win Rate <span style="color:rgb(86,188,77)">53.3<!-- -->%</span></h2>
+  if ($html =~ m{Win\s+Rate.*?<span[^>]*>([0-9.]+)<!--\s*-->%</span>}is) {
+    my $wr = $1;
+    warn "    Win rate: $wr%\n" if $DEBUG;
+    return $wr;
+  }
+  
+  return 50.0;  # Default if not found
+}
+
 sub get_data_for_hero {
   my ($idx) = @_;
   my $slug = slug_from_name($heroes[$idx]);
@@ -250,10 +297,15 @@ sub get_data_for_hero {
   
   warn "Getting DotaCoach data for $heroes[$idx] at $url\n" if $DEBUG;
   
+  # Fetch hero's general win rate from main page
+  my $hero_wr = get_hero_winrate($slug);
+  $heroes_wr[$idx] = sprintf('%.2f', $hero_wr);
+  
+  # Fetch counter and synergy data from counters page
   my $html = fetch_html($url);
   return unless $html;
   
-  # Parse counter data
+  # Parse counter data (Good against / Bad against)
   my $counters = parse_dotacoach_counters($html, $idx);
   for my $opp_idx (keys %$counters) {
     my $adv = $counters->{$opp_idx};
@@ -261,13 +313,13 @@ sub get_data_for_hero {
     # For now, use placeholder values for winrate and matches
     $win_rates[$idx][$opp_idx] = [
       sprintf('%.4f', $adv),
-      sprintf('%.4f', 50.0),  # Placeholder
-      0,  # Placeholder
-      sprintf('%.4f', 0.0)  # Synergy placeholder
+      sprintf('%.4f', 50.0),  # Placeholder - actual matchup winrate
+      0,  # Placeholder - matches count
+      sprintf('%.4f', 0.0)  # Synergy placeholder (will be filled below)
     ];
   }
   
-  # Parse synergy data
+  # Parse synergy data (Good with / Bad with)
   my $synergy = parse_dotacoach_synergy($html, $idx);
   for my $ally_idx (keys %$synergy) {
     my $syn = $synergy->{$ally_idx};
