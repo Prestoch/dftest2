@@ -147,10 +147,6 @@ sub parse_dotacoach_counters {
   
   my %counters;
   
-  # Pattern for extracting hero slug and win rate change from DotaCoach HTML
-  # Example: href="/en/heroes/counters/monkey-king"...>7.5%</p>
-  # or: href="/en/heroes/counters/juggernaut"...<p...gt="" -6.4<="" --="" <="" p="">
-  
   # Parse "Good against" section (heroes this hero counters)
   # These get positive advantage values
   if ($html =~ m{Good\s+against.*?<table.*?<tbody>(.*?)</tbody>}is) {
@@ -167,27 +163,34 @@ sub parse_dotacoach_counters {
   
   # Parse "Bad against" section (heroes that counter this hero)
   # These get negative advantage values
+  # Note: The HTML has malformed attributes for negative values like: gt="" -6.4<="" --="" <="" p="">
   if ($html =~ m{Bad\s+against.*?<table.*?<tbody>(.*?)</tbody>}is) {
     my $bad_against = $1;
     my $bad_count = 0;
-    # Match hero slug and percentage in table rows
-    # Note: percentages might be encoded as "gt="" -6.4<="" --="" <="" p="">" or similar
-    while ($bad_against =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
+    
+    # Split into table rows to process each hero separately
+    my @rows = split(/<tr/, $bad_against);
+    foreach my $row (@rows) {
+      next unless $row =~ m{href="/en/heroes/counters/([a-z-]+)"};
       my $slug = $1;
       next unless defined $slug_to_index{$slug};
       my $opp_idx = $slug_to_index{$slug};
       
-      # Try to find the percentage value after this hero link
-      # Look for patterns like ">7.5%</p>" or "gt="" -6.4<="" --="" <="" p="">"
-      my $pos = pos($bad_against);
-      my $remaining = substr($bad_against, $pos, 500);
-      
-      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
+      # Try multiple patterns for percentage extraction:
+      # Pattern 1: Normal positive percentage (shouldn't happen in Bad against, but just in case)
+      if ($row =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
         my $pct = $1;
-        # Bad against means negative advantage
         $counters{$opp_idx} = -1 * $pct;
         $bad_count++;
-      } elsif ($remaining =~ m{gt=""\s*-([0-9.]+)<}s) {
+      }
+      # Pattern 2: Malformed HTML with gt="" -X.X<
+      elsif ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+      }
+      # Pattern 3: Look for -X.X anywhere in the row after the hero link
+      elsif ($row =~ m{-([0-9.]+)\s*%}s) {
         my $pct = $1;
         $counters{$opp_idx} = -1 * $pct;
         $bad_count++;
@@ -213,45 +216,46 @@ sub parse_dotacoach_synergy {
     my $good_with = $1;
     my $good_count = 0;
     # Match hero slug and percentage in table rows
-    while ($good_with =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
-      my $slug = $1;
+    while ($good_with =~ m{href="/en/heroes/counters/([a-z-]+)".*?<p[^>]*>([0-9.]+)<!--\s*-->%</p>}gs) {
+      my ($slug, $pct) = ($1, $2);
       next unless defined $slug_to_index{$slug};
       my $ally_idx = $slug_to_index{$slug};
-      
-      # Try to find the percentage value after this hero link
-      my $pos = pos($good_with);
-      my $remaining = substr($good_with, $pos, 500);
-      
-      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
-        my $pct = $1;
-        $synergy{$ally_idx} = $pct;
-        $good_count++;
-      }
+      $synergy{$ally_idx} = $pct;
+      $good_count++;
     }
     warn "  Found $good_count heroes in 'Good with' section\n" if $DEBUG && $good_count;
   }
   
   # Parse "Bad with" section (heroes that work poorly together)
   # These get negative synergy values
+  # Note: The HTML has malformed attributes for negative values like: gt="" -6.9<="" --="" <="" p="">
   if ($html =~ m{Bad\s+with.*?<table.*?<tbody>(.*?)</tbody>}is) {
     my $bad_with = $1;
     my $bad_count = 0;
-    # Match hero slug and percentage in table rows
-    while ($bad_with =~ m{href="/en/heroes/counters/([a-z-]+)"}gs) {
+    
+    # Split into table rows to process each hero separately
+    my @rows = split(/<tr/, $bad_with);
+    foreach my $row (@rows) {
+      next unless $row =~ m{href="/en/heroes/counters/([a-z-]+)"};
       my $slug = $1;
       next unless defined $slug_to_index{$slug};
       my $ally_idx = $slug_to_index{$slug};
       
-      # Try to find the percentage value after this hero link
-      my $pos = pos($bad_with);
-      my $remaining = substr($bad_with, $pos, 500);
-      
-      if ($remaining =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
+      # Try multiple patterns for percentage extraction:
+      # Pattern 1: Normal positive percentage (shouldn't happen in Bad with, but just in case)
+      if ($row =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
         my $pct = $1;
-        # Bad with means negative synergy
         $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
         $bad_count++;
-      } elsif ($remaining =~ m{gt=""\s*-([0-9.]+)<}s) {
+      }
+      # Pattern 2: Malformed HTML with gt="" -X.X<
+      elsif ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+      }
+      # Pattern 3: Look for -X.X anywhere in the row after the hero link
+      elsif ($row =~ m{-([0-9.]+)\s*%}s) {
         my $pct = $1;
         $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
         $bad_count++;
