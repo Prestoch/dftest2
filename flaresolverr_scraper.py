@@ -21,6 +21,13 @@ from pathlib import Path
 from typing import Optional
 
 
+# Default filename when URL path doesn't provide a meaningful name
+DEFAULT_OUTPUT_FILENAME = "page.html"
+
+# URL path segments that should be treated as generic (not useful for filename)
+GENERIC_URL_SEGMENTS = {"counters", "index", "home", "main"}
+
+
 class FlareSolverrClient:
     """Client for interacting with FlareSolverr service."""
     
@@ -74,7 +81,8 @@ class FlareSolverrClient:
         except requests.exceptions.Timeout as e:
             raise TimeoutError(f"Request to FlareSolverr timed out: {e}")
         except requests.exceptions.RequestException as e:
-            raise requests.exceptions.RequestException(f"Request failed: {e}")
+            # Re-raise with preserved traceback
+            raise
 
 
 def save_html(content: str, output_file: str) -> None:
@@ -148,10 +156,10 @@ Examples:
     # Generate output filename if not provided
     if args.output_file is None:
         url_path = args.url.rstrip('/').split('/')[-1]
-        if url_path and url_path != 'counters':
+        if url_path and url_path.lower() not in GENERIC_URL_SEGMENTS:
             args.output_file = f"{url_path}_page.html"
         else:
-            args.output_file = "page.html"
+            args.output_file = DEFAULT_OUTPUT_FILENAME
     
     try:
         print(f"Fetching: {args.url}")

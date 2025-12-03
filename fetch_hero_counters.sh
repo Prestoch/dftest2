@@ -42,7 +42,9 @@ for hero in "${heroes[@]}"; do
     fi
     
     # Be nice to the server - add a delay between requests
-    if [ "$hero" != "${heroes[-1]}" ]; then
+    # Get the last hero for comparison (portable across shells)
+    last_hero="${heroes[${#heroes[@]}-1]}"
+    if [ "$hero" != "$last_hero" ]; then
         echo ""
         echo "Waiting 3 seconds before next request..."
         sleep 3
