@@ -12,85 +12,85 @@
 # - matches: Number of matches in the data
 # - synergy: Synergy value (positive = good with, negative = bad with)
 #
+# Prerequisites:
+#   npm install -g playwright
+#   playwright install chromium
+#
 # Usage:
 #   DEBUG=1 perl dotacoach_scrape.pl
-#   FLARESOLVERR_URL=http://localhost:8191/v1 perl dotacoach_scrape.pl
 #
 use strict;
 use warnings;
 use JSON::PP qw(decode_json encode_json);
 use POSIX qw/strftime/;
-use HTTP::Tiny;
+use File::Temp qw/tempfile/;
 
 my $DEBUG = ($ENV{DEBUG} || grep { $_ eq '--debug' } @ARGV) ? 1 : 0;
 
 # Autoflush output
 $| = 1;
 
-my ($http) = (HTTP::Tiny->new(
-  agent => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-  timeout => 60,
-  verify_SSL => 0
-));
-
-my $FLARESOLVERR_URL = $ENV{FLARESOLVERR_URL} // 'http://localhost:8191/v1';
-my $FLARE_SESSION_ID;
-my $FLARE_HEALTHY;
-
-sub flare_healthy {
-  return $FLARE_HEALTHY if defined $FLARE_HEALTHY;
-  return $FLARE_HEALTHY = 0 unless $FLARESOLVERR_URL;
-  my $h = $FLARESOLVERR_URL;
-  $h =~ s{/v1$}{/health};
-  my $r = $http->get($h);
-  $FLARE_HEALTHY = ($r->{success} && ($r->{content} || '') =~ /ok/i) ? 1 : 0;
-  warn "FlareSolverr health: ".($FLARE_HEALTHY ? 'ok' : 'unavailable')."\n" if $DEBUG;
-  return $FLARE_HEALTHY;
-}
-
-sub flare_session_create {
-  return if !$FLARESOLVERR_URL || $FLARE_SESSION_ID;
-  my $r = $http->post($FLARESOLVERR_URL, {
-    headers => {'Content-Type' => 'application/json'},
-    content => '{"cmd":"sessions.create"}'
-  });
-  if ($r->{success}) {
-    my $j;
-    eval { $j = decode_json($r->{content}); };
-    $FLARE_SESSION_ID = $j->{session} if !$@ && $j && $j->{session};
-    warn "Created FlareSolverr session: $FLARE_SESSION_ID\n" if $DEBUG && $FLARE_SESSION_ID;
-  }
-}
-
-sub flare_session_destroy {
-  return unless $FLARE_SESSION_ID;
-  my $p = '{"cmd":"sessions.destroy","session":"'.$FLARE_SESSION_ID.'"}';
-  $http->post($FLARESOLVERR_URL, {
-    headers => {'Content-Type' => 'application/json'},
-    content => $p
-  });
-  $FLARE_SESSION_ID = undef;
-}
-
+# Fetch HTML using Playwright with automatic "Show More" button clicking
 sub fetch_html {
-  my ($url) = @_;
-  if ($FLARESOLVERR_URL && flare_healthy()) {
-    flare_session_create();
-    my $p = '{"cmd":"request.get","url":"'.$url.'","maxTimeout":60000'.
-            ($FLARE_SESSION_ID ? ',"session":"'.$FLARE_SESSION_ID.'"' : '').
-            ',"headers":{"User-Agent":"'.$http->{agent}.'"}}';
-    my $r = $http->post($FLARESOLVERR_URL, {
-      headers => {'Content-Type' => 'application/json'},
-      content => $p
-    });
-    if ($r->{success}) {
-      my $j;
-      eval { $j = decode_json($r->{content}); };
-      return $j->{solution}{response} if !$@ && $j && $j->{status} && $j->{status} eq 'ok' && $j->{solution} && $j->{solution}{response};
+  my ($url, $expand_sections) = @_;
+  
+  # Create a temporary JavaScript file for Playwright
+  my ($fh, $jsfile) = tempfile('dotacoach_XXXX', SUFFIX => '.js', TMPDIR => 1);
+  
+  my $js = <<'ENDJS';
+const playwright = require('playwright');
+
+(async () => {
+  const browser = await playwright.chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+  });
+  const page = await context.newPage();
+  
+  const url = process.argv[2];
+  const expandSections = process.argv[3] === 'true';
+  
+  await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+  
+  if (expandSections) {
+    // Wait a bit for initial content to load
+    await page.waitForTimeout(2000);
+    
+    // Click all "Show More" buttons multiple times to reveal all heroes
+    for (let i = 0; i < 10; i++) {
+      const buttons = await page.$$('button:has-text("Show More")');
+      if (buttons.length === 0) break;
+      
+      for (const button of buttons) {
+        try {
+          await button.click();
+          await page.waitForTimeout(500);
+        } catch (e) {
+          // Button might not be clickable, skip
+        }
+      }
     }
+    
+    // Wait for content to settle
+    await page.waitForTimeout(2000);
   }
-  my $r2 = $http->get($url);
-  return $r2->{success} ? $r2->{content} : undef;
+  
+  const html = await page.content();
+  console.log(html);
+  
+  await browser.close();
+})();
+ENDJS
+  
+  print $fh $js;
+  close $fh;
+  
+  my $expand_arg = $expand_sections ? 'true' : 'false';
+  my $cmd = "node $jsfile '$url' $expand_arg 2>/dev/null";
+  my $html = `$cmd`;
+  unlink $jsfile;
+  
+  return $html || undef;
 }
 
 sub norm {
@@ -312,7 +312,7 @@ sub get_hero_winrate {
   
   warn "  Fetching win rate from $url\n" if $DEBUG;
   
-  my $html = fetch_html($url);
+  my $html = fetch_html($url, 0);  # 0 = don't expand sections (not needed for win rate page)
   return 50.0 unless $html;
   
   # Pattern: <h2...>Win Rate <span style="color:rgb(86,188,77)">53.3<!-- -->%</span></h2>
@@ -332,12 +332,12 @@ sub get_data_for_hero {
   
   warn "Getting DotaCoach data for $heroes[$idx] at $url\n" if $DEBUG;
   
-  # Fetch hero's general win rate from main page
+  # Fetch hero's general win rate from main page (no need to expand sections)
   my $hero_wr = get_hero_winrate($slug);
   $heroes_wr[$idx] = sprintf('%.2f', $hero_wr);
   
-  # Fetch counter and synergy data from counters page
-  my $html = fetch_html($url);
+  # Fetch counter and synergy data from counters page WITH section expansion
+  my $html = fetch_html($url, 1);  # 1 = expand "Show More" buttons
   return unless $html;
   
   # Parse counter data (Good against / Bad against)
@@ -414,6 +414,5 @@ get_all_data();
 
 # Write output
 write_output();
-flare_session_destroy();
 
 warn "Successfully wrote cs_dotacoach.json with ".scalar(@heroes)." heroes\n" if $DEBUG;
