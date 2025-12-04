@@ -164,12 +164,17 @@ sub parse_dotacoach_counters {
   # Parse "Bad against" section (heroes that counter this hero)
   # These get negative advantage values
   # Note: The HTML has malformed attributes for negative values like: gt="" -6.4<="" --="" <="" p="">
-  if ($html =~ m{Bad\s+against.*?<table.*?<tbody>(.*?)</tbody>}is) {
-    my $bad_against = $1;
+  # Try both with and without space in "Bad against"
+  my $bad_against_html = '';
+  if ($html =~ m{Bad\s+against.*?<table[^>]*>.*?<tbody>(.*?)</tbody>}is) {
+    $bad_against_html = $1;
+  }
+  
+  if ($bad_against_html) {
     my $bad_count = 0;
     
     # Split into table rows to process each hero separately
-    my @rows = split(/<tr/, $bad_against);
+    my @rows = split(/<tr/i, $bad_against_html);
     foreach my $row (@rows) {
       next unless $row =~ m{href="/en/heroes/counters/([a-z-]+)"};
       my $slug = $1;
@@ -177,26 +182,38 @@ sub parse_dotacoach_counters {
       my $opp_idx = $slug_to_index{$slug};
       
       # Try multiple patterns for percentage extraction:
-      # Pattern 1: Normal positive percentage (shouldn't happen in Bad against, but just in case)
+      # Pattern 1: Malformed HTML with gt="" -X.X< (most common for negative values)
+      if ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 2: Standard format with minus sign before percentage
+      if ($row =~ m{>-([0-9.]+)\s*%<}s) {
+        my $pct = $1;
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 3: Look for any -X.X pattern in text
+      if ($row =~ m{[^0-9]-([0-9.]+)}s) {
+        my $pct = $1;
+        $counters{$opp_idx} = -1 * $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 4: Normal positive percentage (convert to negative)
       if ($row =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
         my $pct = $1;
         $counters{$opp_idx} = -1 * $pct;
         $bad_count++;
-      }
-      # Pattern 2: Malformed HTML with gt="" -X.X<
-      elsif ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
-        my $pct = $1;
-        $counters{$opp_idx} = -1 * $pct;
-        $bad_count++;
-      }
-      # Pattern 3: Look for -X.X anywhere in the row after the hero link
-      elsif ($row =~ m{-([0-9.]+)\s*%}s) {
-        my $pct = $1;
-        $counters{$opp_idx} = -1 * $pct;
-        $bad_count++;
+        next;
       }
     }
     warn "  Found $bad_count heroes in 'Bad against' section\n" if $DEBUG;
+  } else {
+    warn "  Found 0 heroes in 'Bad against' section\n" if $DEBUG;
   }
   
   return \%counters;
@@ -229,12 +246,16 @@ sub parse_dotacoach_synergy {
   # Parse "Bad with" section (heroes that work poorly together)
   # These get negative synergy values
   # Note: The HTML has malformed attributes for negative values like: gt="" -6.9<="" --="" <="" p="">
-  if ($html =~ m{Bad\s+with.*?<table.*?<tbody>(.*?)</tbody>}is) {
-    my $bad_with = $1;
+  my $bad_with_html = '';
+  if ($html =~ m{Bad\s+with.*?<table[^>]*>.*?<tbody>(.*?)</tbody>}is) {
+    $bad_with_html = $1;
+  }
+  
+  if ($bad_with_html) {
     my $bad_count = 0;
     
     # Split into table rows to process each hero separately
-    my @rows = split(/<tr/, $bad_with);
+    my @rows = split(/<tr/i, $bad_with_html);
     foreach my $row (@rows) {
       next unless $row =~ m{href="/en/heroes/counters/([a-z-]+)"};
       my $slug = $1;
@@ -242,23 +263,33 @@ sub parse_dotacoach_synergy {
       my $ally_idx = $slug_to_index{$slug};
       
       # Try multiple patterns for percentage extraction:
-      # Pattern 1: Normal positive percentage (shouldn't happen in Bad with, but just in case)
+      # Pattern 1: Malformed HTML with gt="" -X.X< (most common for negative values)
+      if ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 2: Standard format with minus sign before percentage
+      if ($row =~ m{>-([0-9.]+)\s*%<}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 3: Look for any -X.X pattern in text
+      if ($row =~ m{[^0-9]-([0-9.]+)}s) {
+        my $pct = $1;
+        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
+        $bad_count++;
+        next;
+      }
+      # Pattern 4: Normal positive percentage (convert to negative)
       if ($row =~ m{<p[^>]*>([0-9.]+)<!--\s*-->%</p>}s) {
         my $pct = $1;
         $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
         $bad_count++;
-      }
-      # Pattern 2: Malformed HTML with gt="" -X.X<
-      elsif ($row =~ m{gt=""\s*-([0-9.]+)<}s) {
-        my $pct = $1;
-        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
-        $bad_count++;
-      }
-      # Pattern 3: Look for -X.X anywhere in the row after the hero link
-      elsif ($row =~ m{-([0-9.]+)\s*%}s) {
-        my $pct = $1;
-        $synergy{$ally_idx} = ($synergy{$ally_idx} || 0) - $pct;
-        $bad_count++;
+        next;
       }
     }
     warn "  Found $bad_count heroes in 'Bad with' section\n" if $DEBUG && $bad_count;
