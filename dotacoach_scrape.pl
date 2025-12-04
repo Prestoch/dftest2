@@ -34,6 +34,12 @@ $| = 1;
 sub fetch_html {
   my ($url, $expand_sections) = @_;
   
+  # Check if node and playwright are available
+  my $node_check = `which node 2>/dev/null`;
+  if (!$node_check) {
+    die "ERROR: Node.js is not installed. Please install Node.js first.\n";
+  }
+  
   # Create a temporary JavaScript file for Playwright
   my ($fh, $jsfile) = tempfile('dotacoach_XXXX', SUFFIX => '.js', TMPDIR => 1);
   
@@ -86,11 +92,25 @@ ENDJS
   close $fh;
   
   my $expand_arg = $expand_sections ? 'true' : 'false';
-  my $cmd = "node $jsfile '$url' $expand_arg 2>/dev/null";
+  my $cmd = "node $jsfile '$url' $expand_arg 2>&1";
+  warn "  Running: $cmd\n" if $DEBUG;
   my $html = `$cmd`;
+  my $exit_code = $? >> 8;
   unlink $jsfile;
   
-  return $html || undef;
+  if ($exit_code != 0) {
+    warn "ERROR: Playwright failed with exit code $exit_code\n";
+    warn "Output: $html\n" if $html;
+    warn "Please install Playwright: npm install -g playwright && playwright install chromium\n";
+    return undef;
+  }
+  
+  if (!$html || length($html) < 100) {
+    warn "ERROR: Got empty or invalid HTML response\n" if $DEBUG;
+    return undef;
+  }
+  
+  return $html;
 }
 
 sub norm {
