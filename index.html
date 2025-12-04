@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.1.2/backbone-min.js"></script>
-      <script src="cs.json"></script>
+    <script src="cs.json"></script>
     <script src="dotabuffcp.js"></script>
     <style type="text/css">
 
@@ -124,7 +124,7 @@
 
       #counters {
         position: absolute;
-        top: 370px;
+        top: 333px;
         bottom: 0;
         left: 30px;
         right: 20px;
@@ -244,48 +244,10 @@
         width: 40%;
       }
       /* Remove previous separator to rely on flex gap */
-        #counters-scroll > .col-md-3:nth-child(3),
-        #counters-scroll > .col-xs-3:nth-child(3) { border-left: 0; padding-left: 0; }
-        #total .alert { font-size: 12px; padding: 4px 6px; }
-        #total .lane-bubble { font-size: 12px !important; padding: 4px 6px !important; }
-        .metric-badge-group {
-          display: wrap;
-          flex-wrap: wrap;
-          margin-top:5px;
-        }
-        .metric-badge-bubble {
-          margin-left:4px;
-          padding: 2px 3px !important;
-          font-size: 13px !important;
-          line-height: 1.1 !important;
-          white-space: nowrap;
-        }
-        .stats-label {
-          font-size: 8px;
-          line-height: 1.1;
-          margin-bottom: 2px;
-          font-weight: 600;
-          white-space: nowrap;
-          text-align: center;
-        }
-        .hero-metrics-inline .hero-metric-value {
-          display: inline-block;
-          min-width: 0px;
-        }
-        .hero-metrics-inline .hero-metric-value + .hero-metric-value {
-          margin-left: 3px;
-        }
-        .stats-label .gpm-label { color: #E8B600; }
-        .stats-label .xpm-label { color: #308DD1; }
-        .stats-label .hd-label { color: #AD1D00; }
-        .stats-label .td-label { color: #AD1D00; }
-        .stats-label .dt-label { color: #AD1D00; }
-        .hero-slot-empty {
-          width: 100%;
-          min-height: 60px;
-          background: rgba(0, 0, 0, 0.05);
-          border-radius: 4px;
-        }
+      #counters-scroll > .col-md-3:nth-child(3),
+      #counters-scroll > .col-xs-3:nth-child(3) { border-left: 0; padding-left: 0; }
+      #total .alert { font-size: 12px; padding: 4px 6px; }
+      #total .lane-bubble { font-size: 12px !important; padding: 4px 6px !important; }
       /* Remove global alert shrink to keep original component sizes */
 
       div.pick-title {
@@ -385,8 +347,8 @@
           <div class="col-md-2 col-xs-2" id="hero-9"></div>
           <div class="col-md-1 col-xs-1"></div>                    
         </div>                
-          <div class="row lineup" id="score2" style="margin-top: 0;"></div>
-          <div class="row lineup" id="total" style="min-height:34px;"></div>
+        <div class="row lineup" id="score2" style="margin-top: 0;"></div>
+        <div class="row" style="height: 18px;" id="total"></div>
         <div class="row pick-title">
           <div class="row">
             <div class="col-md-12 col-xs-12" style="text-align:center; font-weight:400">Advantages</div>

@@ -188,14 +188,26 @@ var DotaBuffCP = {
       if (hid == -1)
         continue;
 
+      // Add hero's base win rate to the calculation
+      var heroWR = Array.isArray(heroes_wr) && heroes_wr[hid] != null ? parseFloat(heroes_wr[hid]) : 50.0;
+
       for (var i = 0; i < heroes.length; ++i) {
         if (_.isUndefined (win_rates[hid][i]) || _.isNull (win_rates[hid][i]))
           continue;
-        //if (nb==4) {
-        //  advantages[i] += parseFloat (win_rates[i][hid][0])*-1;        
-        //} else {
-          advantages[i] += parseFloat (win_rates[hid][i][0]);        
-        //}
+        
+        // Counter advantage (element [0])
+        advantages[i] += parseFloat (win_rates[hid][i][0]);
+        
+        // Add synergy if available (element [3])
+        // Synergy represents how well this hero works with teammates
+        if (win_rates[hid][i].length > 3 && !_.isUndefined(win_rates[hid][i][3]) && !_.isNull(win_rates[hid][i][3])) {
+          advantages[i] += parseFloat(win_rates[hid][i][3]);
+        }
+      }
+      
+      // Add hero win rate contribution (distributed across all enemy heroes)
+      for (var i = 0; i < heroes.length; ++i) {
+        advantages[i] += (heroWR - 50.0) / heroes.length;
       }
 
     }
@@ -216,10 +228,25 @@ var DotaBuffCP = {
       if (_.isUndefined(win_rates[hid]) || _.isNull(win_rates[hid]))
         continue;
 
+      // Add hero's base win rate to the calculation
+      var heroWR = Array.isArray(heroes_wr) && heroes_wr[hid] != null ? parseFloat(heroes_wr[hid]) : 50.0;
+
       for (var i = 0; i < heroes.length; ++i) {
         if (_.isUndefined (win_rates[hid][i]) || _.isNull (win_rates[hid][i]))
           continue;
+        
+        // Counter advantage (element [0])
         advantages[i] += parseFloat (win_rates[hid][i][0]);
+        
+        // Add synergy if available (element [3])
+        if (win_rates[hid][i].length > 3 && !_.isUndefined(win_rates[hid][i][3]) && !_.isNull(win_rates[hid][i][3])) {
+          advantages[i] += parseFloat(win_rates[hid][i][3]);
+        }
+      }
+      
+      // Add hero win rate contribution (distributed across all enemy heroes)
+      for (var i = 0; i < heroes.length; ++i) {
+        advantages[i] += (heroWR - 50.0) / heroes.length;
       }
     }
 
@@ -262,94 +289,6 @@ var DotaBuffCP = {
 
 };
 
-var EXTRA_METRIC_CONFIG = [
-  { key: 'heroes_gpm', label: 'GPM', aggregate: 'sum', decimals: 0 },
-  { key: 'heroes_xpm', label: 'XPM', aggregate: 'sum', decimals: 0 },
-  { key: 'heroes_hero_damage', label: 'HD', aggregate: 'sum', decimals: 0 },
-  { key: 'heroes_tower_damage', label: 'TD', aggregate: 'sum', decimals: 0 },
-  { key: 'heroes_damage_taken', label: 'DT', aggregate: 'sum', decimals: 0 },
-  { key: 'heroes_match_duration', label: 'DUR', aggregate: 'avg', decimals: 1 },
-  {
-    key: 'heroes_teamfight_participation',
-    label: 'TP',
-    aggregate: 'avg',
-    decimals: 1,
-    multiplier: 100,
-    suffix: '%'
-  }
-];
-
-var MetricDeltaHelper = (function () {
-  function getMetricArray(key) {
-    if (typeof window === 'undefined') return null;
-    var arr = window[key];
-    return Array.isArray(arr) ? arr : null;
-  }
-
-  function parseValue(value) {
-    if (_.isUndefined(value) || value === null) return null;
-    if (typeof value === 'number') {
-      return isFinite(value) ? value : null;
-    }
-    var num = parseFloat(value);
-    return isNaN(num) ? null : num;
-  }
-
-  function aggregateLineup(lineup, metricArray, aggregate) {
-    if (!metricArray) return null;
-    var values = [];
-    for (var i = 0; i < lineup.length; i++) {
-      var heroIdx = parseInt(lineup[i], 10);
-      if (isNaN(heroIdx) || heroIdx < 0 || heroIdx >= metricArray.length) continue;
-      var val = parseValue(metricArray[heroIdx]);
-      if (val === null) continue;
-      values.push(val);
-    }
-    if (!values.length) return null;
-    var sum = values.reduce(function (acc, val) { return acc + val; }, 0);
-    if (aggregate === 'avg') {
-      return sum / values.length;
-    }
-    return sum;
-  }
-
-  function collect(lineupA, lineupB) {
-    if (!Array.isArray(EXTRA_METRIC_CONFIG) || !EXTRA_METRIC_CONFIG.length) {
-      return [];
-    }
-    var rows = [];
-    EXTRA_METRIC_CONFIG.forEach(function (cfg) {
-      var metricArr = getMetricArray(cfg.key);
-      if (!metricArr) return;
-      var aggregate = cfg.aggregate || 'sum';
-      var topValue = aggregateLineup(lineupA, metricArr, aggregate);
-      var bottomValue = aggregateLineup(lineupB, metricArr, aggregate);
-      if (topValue === null || bottomValue === null) return;
-      var multiplier = typeof cfg.multiplier === 'number' ? cfg.multiplier : 1;
-      var decimals = typeof cfg.decimals === 'number' ? cfg.decimals : 2;
-      var suffix = cfg.suffix || '';
-      rows.push({
-        label: cfg.label,
-        top: topValue * multiplier,
-        bottom: bottomValue * multiplier,
-        delta: (topValue - bottomValue) * multiplier,
-        decimals: decimals,
-        suffix: suffix
-      });
-    });
-    return rows;
-  }
-
-  return { collect: collect };
-})();
-
-var HERO_METRIC_INLINE_CONFIG = [
-  { key: 'heroes_gpm', className: 'gpm-label', decimals: 0 },
-  { key: 'heroes_xpm', className: 'xpm-label', decimals: 0 },
-  { key: 'heroes_hero_damage', className: 'hd-label', decimals: 0 },
-  { key: 'heroes_tower_damage', className: 'td-label', decimals: 0 },
-  { key: 'heroes_damage_taken', className: 'dt-label', decimals: 0 }
-];
 
 
 // Backward compatibility: heroes_wr should be provided by cs.json for counter pick display
@@ -419,7 +358,7 @@ var MainView = Backbone.View.extend ({
     $('#hero-list li:first').trigger ('click');
   },
 
-    addHero: function (ev) {
+  addHero: function (ev) {
     var hid = $(ev.currentTarget).attr ('data-hero-id');
     var pick_i = -1;
 
@@ -462,67 +401,17 @@ var MainView = Backbone.View.extend ({
     //console.log(heroes);
     //console.log(win_rates);
     //console.log(heroes_wr);
-      this.renderHeroSlot(hid, pick_i);
+    // Render hero tile with just the image (no per-role UI)
+    $('#hero-' + pick_i).html ("<img src='" + heroes_bg[hid] + "' data-idx='" + pick_i + "'>");
 
     this.calculateAndShow ();
     this.switchLink ();
   },
 
   addHeroToIndex: function (hid, pick_i) {
-      this.renderHeroSlot(hid, pick_i);
+    // Render hero tile with just the image (no per-role UI)
+    $('#hero-' + pick_i).html ("<img src='" + heroes_bg[hid] + "' data-idx='" + pick_i + "'>");
   },
-
-    renderHeroSlot: function (hid, pickIdx) {
-      if (_.isUndefined(hid) || hid === -1) {
-        $('#hero-' + pickIdx).html('');
-        return;
-      }
-      var heroIdx = parseInt(hid, 10);
-      var statsMarkup = (!isNaN(heroIdx)) ? this.buildHeroStatsMarkup(heroIdx) : '';
-      var heroSrc = (!_.isUndefined(heroes_bg) && heroes_bg[hid]) ? heroes_bg[hid] : (!isNaN(heroIdx) ? heroes_bg[heroIdx] : '');
-      var heroImg = '';
-      if (heroSrc) {
-        heroImg = "<img src='" + _.escape(heroSrc) + "' data-idx='" + pickIdx + "'>";
-      } else {
-        heroImg = "<div data-idx='" + pickIdx + "' class='hero-slot-empty'></div>";
-      }
-      $('#hero-' + pickIdx).html((statsMarkup || '') + heroImg);
-    },
-
-    buildHeroStatsMarkup: function (heroIdx) {
-      if (isNaN(heroIdx) || heroIdx < 0) return '';
-      if (!Array.isArray(HERO_METRIC_INLINE_CONFIG) || !HERO_METRIC_INLINE_CONFIG.length) return '';
-      var self = this;
-      var spans = [];
-      _.each(HERO_METRIC_INLINE_CONFIG, function (cfg) {
-        if (!cfg || !cfg.key) return;
-        var value = self.getHeroMetricValue(cfg.key, heroIdx);
-        if (value === null) return;
-        var formatted = self.formatHeroMetricValue(value, cfg);
-        var className = cfg.className ? String(cfg.className) : '';
-        var classes = ['hero-metric-value'];
-        if (className) classes.push(className);
-        spans.push("<span class='" + _.escape(classes.join(' ')) + "'>" + formatted + "</span>");
-      });
-      if (!spans.length) return '';
-      return "<div class='stats-label hero-metrics-inline'>" + spans.join('') + "</div>";
-    },
-
-    getHeroMetricValue: function (metricKey, heroIdx) {
-      if (typeof window === 'undefined') return null;
-      var metricArr = window[metricKey];
-      if (!Array.isArray(metricArr) || heroIdx < 0 || heroIdx >= metricArr.length) return null;
-      var raw = parseFloat(metricArr[heroIdx]);
-      if (!isFinite(raw)) return null;
-      return raw;
-    },
-
-    formatHeroMetricValue: function (value, cfg) {
-      if (!isFinite(value)) return '--';
-      var decimals = typeof cfg.decimals === 'number' ? cfg.decimals : 0;
-      var textValue = value.toFixed(decimals);
-      return textValue.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-    },
 
   
 
@@ -629,9 +518,9 @@ var MainView = Backbone.View.extend ({
   },
 
   calculateAndShow: function () {
-      
+    
 
-      if (this.isEmpty ()) {
+    if (this.isEmpty ()) {
       
       $('div.lineup-title').show ();
       $('div.pick-title').hide ();
@@ -712,14 +601,13 @@ var MainView = Backbone.View.extend ({
       var rightSum2 = "<div class=\"col-md-1 col-xs-1\" style=\"text-align:right\">" + nb2.toFixed(2) + "</div>";
       $('#score1').html(data + rightSum1);
       $('#score2').html(data2 + rightSum2);
-        var wrdelta = (nb1 - nb2);
-        var metricRows = MetricDeltaHelper.collect(DotaBuffCP.lineup, DotaBuffCP.lineup2);
-        var metricBadges = this.renderMetricBadges(metricRows, wrdelta);
-
-        $('#total').html(
+      var wrdelta = (nb1 - nb2).toFixed(2);
+      var wrClass = (wrdelta > 0) ? 'alert alert-success' : 'alert alert-danger';
+      var wrBubble = "<span class='" + wrClass + "' style='display:inline-block; padding:4px 10px 4px 6px; margin:0; font-size:16px; white-space:nowrap'>= " + wrdelta + "</span>";
+      $('#total').html(
         "<div class='col-md-1 col-xs-1'></div>" +
         "<div class='col-md-10 col-xs-10' style='display:flex; justify-content:center; align-items:center; gap:4px; margin-left:15px; flex-wrap:nowrap'>" +
-            (metricBadges || '') +
+          wrBubble +
         "</div>" +
         "<div class='col-md-1 col-xs-1'></div>"
       );
@@ -782,30 +670,6 @@ var MainView = Backbone.View.extend ({
     }
 
     $('#counters').scrollTop (0);
-  },
-
-    renderMetricBadges: function (metricRows, wrdelta) {
-      var badges = [];
-      if (typeof wrdelta === 'number' && !isNaN(wrdelta)) {
-        var wrClass = (wrdelta > 0) ? 'alert alert-success' : 'alert alert-danger';
-        badges.push("<span class='" + wrClass + " metric-badge-bubble'>= " + wrdelta.toFixed(2) + "</span>");
-      }
-      if (!metricRows || !metricRows.length) {
-        return badges.length ? "<div class='metric-badge-group'>" + badges.join('') + "</div>" : '';
-      }
-      var rowsHtml = metricRows.map(function (row) {
-      var label = _.escape(row.label || '');
-      var decimals = typeof row.decimals === 'number' ? row.decimals : 2;
-      var suffix = row.suffix || '';
-      var deltaValue = row.delta.toFixed(decimals);
-      var badgeClass = row.delta >= 0 ? 'alert alert-success' : 'alert alert-danger';
-      var formattedDelta = (row.delta >= 0 ? '+' : '') + deltaValue;
-        return "<span class='" + badgeClass + " metric-badge-bubble'>" +
-          label + " " + formattedDelta + suffix +
-        "</span>";
-    }).join('');
-      badges.push(rowsHtml);
-      return "<div class='metric-badge-group'>" + badges.join('') + "</div>";
   }
 
 });
